@@ -1,0 +1,37 @@
+TriAgent Studio - provider integration diagnostics
+OS: Windows 11 (10.0.26300)
+Python: 3.14.5  C:\Users\Burakk\Desktop\TriAgentStudio\.venv\Scripts\python.exe
+Workspace checked: C:\Users\Burakk\Desktop\TriAgentStudio  git=no  acl=OK
+
+== Claude
+  status        : READY
+  executable    : C:\Users\Burakk\.local\bin\claude.exe
+  version       : 2.1.316 (Claude Code)
+  authenticated : True  method=claude.ai  subscription=max
+  streaming     : True
+  key flags     : -p✓  --output-format✓  --verbose✓  --permission-mode✓  --allowedTools✓  --disallowedTools✓  --model✓
+  billing env   : none
+  message       : Signed in via claude.ai (max).
+  worker cmd    : C:\Users\Burakk\.local\bin\claude.exe -p --output-format stream-json --verbose --permission-mode acceptEdits --allowedTools Read,Glob,Grep,Edit,Write,NotebookEdit,TodoWrite --disallowedTools WebFetch,WebSearch,Bash,PowerShell  < prompt(stdin)
+
+== Codex
+  status        : READY
+  executable    : C:\Users\Burakk\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE
+  version       : codex-cli 0.166.0
+  authenticated : True  method=ChatGPT  subscription=ChatGPT plan
+  streaming     : True
+  key flags     : --json✓  --sandbox✓  --cd✓  --model✓  --skip-git-repo-check✓  --color✓
+  billing env   : OPENAI_API_KEY (removed from workers)
+  warning       : OPENAI_API_KEY is set in your environment. TriAgent Studio removes it from Codex workers so your ChatGPT sign-in is used, not metered API billing.
+  message       : Signed in using ChatGPT. Workers run with the ChatGPT login pinned (forced_login_method=chatgpt) and without API-key variables.
+  worker cmd    : C:\Users\Burakk\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE exec --json --sandbox workspace-write --cd C:\Users\Burakk\Desktop\TriAgentStudio --color never -c forced_login_method=chatgpt -  < prompt(stdin)
+
+== Antigravity
+  status        : UNSUPPORTED
+  executable    : -
+  version       : -
+  authenticated : None  method=-  subscription=-
+  streaming     : False
+  billing env   : none
+  message       : Automated Antigravity integration is disabled. Google's published terms do not permit third-party applications to wrap the Antigravity consumer-account CLI, so TriAgent Studio does not launch, test or control it. Use Antigravity directly in Google's own apps; Claude and Codex continue to work here.
+

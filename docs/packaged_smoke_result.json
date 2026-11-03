@@ -1,0 +1,67 @@
+{
+  "checks": {
+    "Open Project Folder: shell accepted": true,
+    "Open Project Folder: requested path correct": true,
+    "Open Project Folder: Explorer window open at path": true,
+    "Open Output Folder: shell accepted": true,
+    "Open Output Folder: requested path correct": true,
+    "Open Output Folder: Explorer window open at path": true,
+    "Open Application Folder: shell accepted": true,
+    "Open Application Folder: requested path correct": true,
+    "Open Application Folder: Explorer window open at path": true,
+    "packaged_exe_frozen": true,
+    "first_launch_created_projects_folder": true,
+    "project_created_in_projects_folder": true,
+    "first launch created the project": true,
+    "Application folder == folder of TriAgentStudio.exe": true,
+    "restart: project restored (not recreated)": true,
+    "restart: same project folder": true
+  },
+  "first_launch": {
+    "frozen": true,
+    "executable": "C:\\Users\\Burakk\\Desktop\\TriAgentStudio\\dist\\TriAgentStudio\\TriAgentStudio.exe",
+    "project_created": true,
+    "project": "Selftest Project",
+    "expected": {
+      "Open Project Folder": "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\Documents\\TriAgent Studio Projects\\Selftest Project",
+      "Open Output Folder": "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\Documents\\TriAgent Studio Projects\\Selftest Project\\output",
+      "Open Application Folder": "C:\\Users\\Burakk\\Desktop\\TriAgentStudio\\dist\\TriAgentStudio"
+    },
+    "opened": {
+      "Open Project Folder": [
+        [
+          "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\Documents\\TriAgent Studio Projects\\Selftest Project",
+          true
+        ]
+      ]
+    },
+    "projects_root": "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\Documents\\TriAgent Studio Projects",
+    "data_dir": "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\home"
+  },
+  "second_launch": {
+    "frozen": true,
+    "executable": "C:\\Users\\Burakk\\Desktop\\TriAgentStudio\\dist\\TriAgentStudio\\TriAgentStudio.exe",
+    "project_created": false,
+    "project": "Selftest Project",
+    "expected": {
+      "Open Project Folder": "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\Documents\\TriAgent Studio Projects\\Selftest Project",
+      "Open Output Folder": "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\Documents\\TriAgent Studio Projects\\Selftest Project\\output",
+      "Open Application Folder": "C:\\Users\\Burakk\\Desktop\\TriAgentStudio\\dist\\TriAgentStudio"
+    },
+    "opened": {
+      "Open Project Folder": [
+        [
+          "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\Documents\\TriAgent Studio Projects\\Selftest Project",
+          true
+        ]
+      ]
+    },
+    "projects_root": "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\Documents\\TriAgent Studio Projects",
+    "data_dir": "C:\\Users\\Burakk\\AppData\\Local\\Temp\\triagent-pkg-atou1syc\\home"
+  },
+  "explorer_windows_opened": [
+    "c:\\users\\burakk\\appdata\\local\\temp\\triagent-pkg-atou1syc\\documents\\triagent studio projects\\selftest project",
+    "c:\\users\\burakk\\appdata\\local\\temp\\triagent-pkg-atou1syc\\documents\\triagent studio projects\\selftest project\\output",
+    "c:\\users\\burakk\\desktop\\triagentstudio\\dist\\triagentstudio"
+  ]
+}

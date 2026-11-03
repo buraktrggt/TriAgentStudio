@@ -1,0 +1,17 @@
+.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+docs/real_acceptance_export/
+test_workspaces/
+recovered/
+
+# never publish secrets or local logs
+.env
+*.env
+.env.*
+*.log
+*.db
+*.sqlite

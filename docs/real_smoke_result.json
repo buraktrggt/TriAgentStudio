@@ -1,0 +1,237 @@
+{
+  "date": "2026-10-31 16:51:38",
+  "detection": {
+    "claude": {
+      "status": "READY",
+      "version": "2.1.316 (Claude Code)",
+      "auth_method": "claude.ai",
+      "subscription": "max",
+      "message": "Signed in via claude.ai (max).",
+      "warnings": []
+    },
+    "codex": {
+      "status": "READY",
+      "version": "codex-cli 0.166.0",
+      "auth_method": "ChatGPT",
+      "subscription": "ChatGPT plan",
+      "message": "Signed in using ChatGPT. Workers run with the ChatGPT login pinned (forced_login_method=chatgpt) and without API-key variables.",
+      "warnings": [
+        "OPENAI_API_KEY is set in your environment. TriAgent Studio removes it from Codex workers so your ChatGPT sign-in is used, not metered API billing."
+      ]
+    },
+    "antigravity": {
+      "status": "UNSUPPORTED",
+      "version": "",
+      "auth_method": "",
+      "subscription": "",
+      "message": "Automated Antigravity integration is disabled. Google's published terms do not permit third-party applications to wrap the Antigravity consumer-account CLI, so TriAgent Studio does not launch, test or control it. Use Antigravity directly in Google's own apps; Claude and Codex continue to work here.",
+      "warnings": []
+    }
+  },
+  "auth_modes": {
+    "claude": {
+      "loggedIn": true,
+      "authMethod": "claude.ai",
+      "apiProvider": "firstParty",
+      "subscriptionType": "max"
+    },
+    "codex": {
+      "login_status": "Logged in using ChatGPT",
+      "checked_with": "worker env (API-key vars removed) + forced_login_method=chatgpt"
+    },
+    "host_env_billing_vars_present": {
+      "claude": [],
+      "codex": [
+        "OPENAI_API_KEY"
+      ]
+    }
+  },
+  "checks": {
+    "A_run_completed": true,
+    "A_claude_task_completed": true,
+    "A_claude_real_process": true,
+    "A_codex_task_completed": true,
+    "A_codex_real_process": true,
+    "A_handoff_sent_by_claude": true,
+    "A_handoff_delivered_to_codex": true,
+    "A_codex_output_contains_token": true,
+    "A_codex_replied_via_bus": true,
+    "B_run_persisted": true,
+    "B_tasks_persisted": true,
+    "B_messages_and_deliveries_persisted": true,
+    "B_events_persisted": true,
+    "B_prompts_persisted_in_run_config": true,
+    "B_outputs_transcripts_prompts_on_disk": true,
+    "C_two_real_workers_alive_before_stop": true,
+    "C_run_stopped": true,
+    "C_all_worker_process_trees_terminated": true,
+    "C_tasks_returned_to_queue_resumable": true,
+    "C_agents_canceled": true,
+    "C_worker_records_marked_killed": true,
+    "C_no_relaunch_after_stop_all": true,
+    "C_no_orphans_after_restart": true,
+    "auth_claude_workers_observed_live": true,
+    "auth_claude_workers_without_api_key_vars": true,
+    "auth_claude_no_bypass_flags": true,
+    "auth_codex_workers_observed_live": true,
+    "auth_codex_workers_without_api_key_vars": true,
+    "auth_codex_no_bypass_flags": true,
+    "auth_codex_workers_pinned_to_chatgpt_login": true,
+    "auth_host_environment_unchanged": true
+  },
+  "token": "BUS-9085046F",
+  "run_a": "run-107032c0",
+  "run_c": "run-a9fc6ef7",
+  "stop_all_seconds": 0.6,
+  "phase_a_tasks": [
+    {
+      "title": "claude: read README and hand off a token",
+      "status": "COMPLETED",
+      "assigned_agent": "claude-1",
+      "attempts": 1,
+      "result_summary": "Read README.md: it describes a smoke workspace used by the TriAgent Studio smoke test. Sent one handoff to team:codex with the verification token and this summary."
+    },
+    {
+      "title": "codex: confirm the handoff",
+      "status": "COMPLETED",
+      "assigned_agent": "codex-1",
+      "attempts": 1,
+      "result_summary": "Confirmed handoff token BUS-9085046F. No files modified."
+    }
+  ],
+  "phase_a_messages": [
+    {
+      "id": 1,
+      "sender": "claude-1",
+      "recipient": "team:codex",
+      "msg_type": "handoff",
+      "body": "Verification token: BUS-9085046F. README summary: README.md describes a smoke workspace used by the TriAgent Studio smoke test."
+    },
+    {
+      "id": 2,
+      "sender": "codex-1",
+      "recipient": "team:claude",
+      "msg_type": "answer",
+      "body": "BUS-9085046F ACK"
+    }
+  ],
+  "phase_a_deliveries": {
+    "1": [
+      {
+        "agent": "codex-1",
+        "task": "task-e40d5386"
+      }
+    ]
+  },
+  "phase_a_worker_processes": [
+    {
+      "agent_id": "claude-1",
+      "pid": 30624,
+      "status": "exited",
+      "exit_code": 0
+    },
+    {
+      "agent_id": "codex-1",
+      "pid": 17212,
+      "status": "exited",
+      "exit_code": 0
+    }
+  ],
+  "phase_c_worker_processes": [
+    {
+      "agent_id": "claude-1",
+      "pid": 752,
+      "status": "killed",
+      "exit_code": 15
+    },
+    {
+      "agent_id": "codex-1",
+      "pid": 10392,
+      "status": "killed",
+      "exit_code": 15
+    }
+  ],
+  "observed_live_workers": [
+    {
+      "agent": "claude-1",
+      "provider": "claude",
+      "exe": "claude.exe",
+      "alive_verified": true,
+      "billing_vars_present": [],
+      "forced_chatgpt_login": false,
+      "dangerous_flags": []
+    },
+    {
+      "agent": "codex-1",
+      "provider": "codex",
+      "exe": "codex.EXE",
+      "alive_verified": true,
+      "billing_vars_present": [],
+      "forced_chatgpt_login": true,
+      "dangerous_flags": []
+    },
+    {
+      "agent": "claude-1",
+      "provider": "claude",
+      "exe": "claude.exe",
+      "alive_verified": true,
+      "billing_vars_present": [],
+      "forced_chatgpt_login": false,
+      "dangerous_flags": []
+    },
+    {
+      "agent": "codex-1",
+      "provider": "codex",
+      "exe": "codex.EXE",
+      "alive_verified": true,
+      "billing_vars_present": [],
+      "forced_chatgpt_login": true,
+      "dangerous_flags": []
+    }
+  ],
+  "provider_usage_phase_a": {
+    "claude": {
+      "backoff_until": 0.0,
+      "backoff_level": 0,
+      "quota": {
+        "status": "allowed",
+        "type": "five_hour",
+        "resets_at": 1793463000,
+        "overage": "rejected",
+        "using_overage": false,
+        "windows": {
+          "five_hour": {
+            "utilization": 0.19,
+            "resets_at": 1793463000,
+            "status": "allowed"
+          },
+          "seven_day": {
+            "utilization": 0.16,
+            "resets_at": 1793829600,
+            "status": "allowed"
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 11810,
+        "cache_read_input_tokens": 31718,
+        "output_tokens": 434,
+        "cli_reported_cost_usd": 0.1095196,
+        "invocations": 1
+      }
+    },
+    "codex": {
+      "backoff_until": 0.0,
+      "backoff_level": 0,
+      "quota": {},
+      "usage": {
+        "input_tokens": 18577,
+        "cached_input_tokens": 13440,
+        "output_tokens": 132,
+        "invocations": 1
+      }
+    }
+  },
+  "ok": true
+}
