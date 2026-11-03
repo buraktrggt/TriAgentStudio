@@ -1,5 +1,7 @@
 # TriAgent Studio
 
+![TriAgent Studio: Agent Monitor after a completed run (two Claude Code and two Codex agents, 12/12 tasks)](docs/screenshots/5_monitor_done.png)
+
 A Windows desktop application that orchestrates AI coding-agent CLIs as one team:
 
 * **Anthropic Claude Code** (`claude -p --output-format stream-json`), using your Claude
