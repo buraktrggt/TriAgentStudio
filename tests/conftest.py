@@ -21,7 +21,8 @@ def _env(tmp_path, monkeypatch):
     # never create folders in the real Documents during tests
     monkeypatch.setenv("TRIAGENT_PROJECTS_DIR", str(tmp_path / "Documents" / "TriAgent Studio Projects"))
     for k in ("MOCK_FAIL_KINDS", "MOCK_RATE_LIMIT_ONCE", "MOCK_HANG_KINDS", "MOCK_REVIEW_APPROVE",
-              "MOCK_FAIL_ONCE_DIR"):
+              "MOCK_FAIL_ONCE_DIR", "MOCK_FAIL_TITLES", "MOCK_REPLAN", "MOCK_PLAN_PIN",
+              "MOCK_SYNTH_PROPOSE"):
         monkeypatch.delenv(k, raising=False)
     yield
 

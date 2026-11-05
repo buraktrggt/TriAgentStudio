@@ -63,6 +63,8 @@ class Engine:
         self._last_renew = 0.0
         self._last_agent_update = 0.0
         self._synth_created = False
+        self._blocked_replan_tried: set[frozenset] = set()
+        self._last_keymap: dict[str, str] = {}
         self._started_at = 0.0
         self.last_error = ""
 
@@ -483,7 +485,11 @@ class Engine:
                 continue
             if self.sup.active_count(provider=p) >= max(1, int(pconc.get(p, 2))):
                 continue
-            if task.get("agent_pref") and not failed_before and a["id"] != task["agent_pref"] \
+            # a pin from the plan (fixed roles) is strict, also on retry; a coordinator
+            # preference (fix -> implementer) yields to another agent after a failure
+            pinned = (task.get("origin") or "") != "coordinator"
+            if task.get("agent_pref") and (pinned or not failed_before) \
+                    and a["id"] != task["agent_pref"] \
                     and any(x["id"] == task["agent_pref"] for x in self.repo.agents(self.run_id)
                             if x["provider"] in self.available):
                 continue
@@ -500,7 +506,8 @@ class Engine:
                 score += 5
             if a["id"] == task.get("agent_pref"):
                 score += 8
-            if failed_before and a["id"] == task.get("assigned_agent"):
+            if failed_before and a["id"] == task.get("assigned_agent") \
+                    and a["id"] != task.get("agent_pref"):
                 score -= 6   # prefer a different agent when retrying
             cands.append((score, a))
         if not cands:
@@ -1136,6 +1143,16 @@ class Engine:
             self._maybe_replan(f"Verification by {w.agent_id} found problems:\n" +
                                "\n".join(f"- {d}" for d in (report.defects or [report.summary])))
             return
+        if kind == "synthesize":
+            if report.proposed_tasks:
+                self.repo.add_event(self.run_id, Ev.WARNING,
+                                    f"{w.agent_id}'s synthesis recommends {len(report.proposed_tasks)}"
+                                    " further task(s); a synthesis does not start work, so they "
+                                    "were NOT created: " + "; ".join(
+                                        clip(str(t.get("title") or "?"), 120)
+                                        for t in report.proposed_tasks[:10]),
+                                    task_id=task["id"], data={"proposed": report.proposed_tasks})
+            return
         if report.proposed_tasks and (task.get("round") or 0) < int(s.get("max_rounds", 6)):
             self._create_followups(task, w, report.proposed_tasks)
 
@@ -1197,21 +1214,73 @@ class Engine:
             else:
                 tid = self.repo.create_task(
                     self.run_id, t["title"], t["description"], t["kind"], role=t["role"],
-                    provider_pref=t["provider"], depends_on=deps, files=t["files"],
+                    provider_pref=t["provider"], agent_pref=t.get("agent") or "",
+                    depends_on=deps, files=t["files"],
                     origin=origin, plan_key=t["key"], round=round_, priority=t["priority"],
                     max_attempts=int(self.settings.get("max_attempts", 2)))
                 keymap[t["key"]] = tid
                 created.append(tid)
+        self._last_keymap = keymap
         return created
+
+    def _agent_map(self) -> dict[str, str]:
+        return {a["id"]: a["provider"] for a in self.repo.agents(self.run_id)
+                if a["provider"] in self.available}
+
+    def _rewire_replacements(self, task: dict, tasks: list[dict], canceled: list[dict]):
+        """Point the dependents of replaced tasks at their replacements, then unblock them.
+
+        Explicit `replaces` wins; otherwise a canceled task is matched to a new task of the
+        same kind whose title starts with the canceled title (or the reverse)."""
+        def norm(s):
+            return " ".join(str(s or "").lower().split())
+        pairs: list[tuple[str, str]] = []
+        for t in tasks:
+            new_id = self._last_keymap.get(t["key"])
+            for old in t.get("replaces") or []:
+                ot = self.repo.get_task(old)
+                if new_id and ot and ot["run_id"] == self.run_id and old != new_id:
+                    pairs.append((old, new_id))
+        explicit = {o for o, _ in pairs}
+        for ct in canceled:
+            if ct["id"] in explicit:
+                continue
+            ctitle = norm(ct["title"])
+            for t in tasks:
+                ntitle = norm(t["title"])
+                if len(ctitle) >= 12 and t["kind"] == ct["kind"] and (
+                        ntitle.startswith(ctitle) or ctitle.startswith(ntitle)) \
+                        and self._last_keymap.get(t["key"]):
+                    pairs.append((ct["id"], self._last_keymap[t["key"]]))
+                    break
+        if not pairs:
+            return
+        for old, new in pairs:
+            ot = self.repo.get_task(old)
+            if ot and ot["status"] in ("FAILED", "BLOCKED", "PENDING", "READY"):
+                self.repo.cancel_task(old, f"Replaced by {new} (replan {task['id']})")
+            moved = self.repo.replace_dep(old, new)
+            self.repo.add_event(self.run_id, Ev.TASK_CREATED,
+                                f"Replan {task['id']}: {new} replaces {old}; "
+                                f"{len(moved)} waiting task(s) now depend on {new}.",
+                                task_id=new, sender="coordinator",
+                                data={"replaces": old, "rewired": moved})
+        # tasks blocked only by the replaced dependency wait again; promote_ready re-blocks
+        # any whose other dependencies are still dead
+        self.repo.unblock_dependents_of_retried(self.run_id)
 
     def _apply_plan(self, task: dict, report: Report):
         budget = self._budget_left()
+        canceled: list[dict] = []
         if task["kind"] == "replan":
             for cid in report.cancel:
                 t = self.repo.get_task(cid)
+                if t and t["run_id"] == self.run_id and t["status"] == "CANCELED":
+                    canceled.append(t)
                 if t and t["run_id"] == self.run_id and t["status"] in ("BLOCKED", "FAILED",
                                                                          "PENDING", "READY"):
                     self.repo.cancel_task(cid, f"Superseded by replan {task['id']}")
+                    canceled.append(t)
                     self.repo.add_event(self.run_id, Ev.TASK_CANCELED,
                                         f"Coordinator canceled {t['title']} (superseded).",
                                         task_id=cid, sender="coordinator")
@@ -1220,7 +1289,7 @@ class Engine:
             return
         try:
             tasks, warns = validate_plan(report.tasks, self.available, budget,
-                                         set(self._existing_keymap()))
+                                         set(self._existing_keymap()), self._agent_map())
         except PlanError as e:
             if task["kind"] == "plan":
                 self.repo.add_event(self.run_id, Ev.WARNING,
@@ -1239,9 +1308,11 @@ class Engine:
         for wmsg in warns:
             self.repo.add_event(self.run_id, Ev.WARNING, f"Plan: {wmsg}", task_id=task["id"])
         created = self._create_graph(tasks, task, "planner", 0)
+        if task["kind"] == "replan":
+            self._rewire_replacements(task, tasks, canceled)
         lines = []
         for t in tasks:
-            lines.append(f"- [{t['kind']}] {t['title']} -> {t['provider']}"
+            lines.append(f"- [{t['kind']}] {t['title']} -> {t.get('agent') or t['provider']}"
                          + (f" (after {', '.join(t['depends_on'])})" if t["depends_on"] else "")
                          + (f" x{t['parallel']}" if t["parallel"] > 1 else ""))
         self.repo.add_event(self.run_id, Ev.PLAN_CREATED,
@@ -1258,7 +1329,7 @@ class Engine:
             return
         try:
             tasks, warns = validate_plan(proposed, self.available, budget,
-                                         set(self._existing_keymap()))
+                                         set(self._existing_keymap()), self._agent_map())
         except PlanError as e:
             self.repo.add_event(self.run_id, Ev.WARNING, f"Proposed tasks rejected: {e}",
                                 task_id=task["id"])
@@ -1270,21 +1341,21 @@ class Engine:
                             "; ".join(t["title"] for t in tasks), provider=w.provider,
                             agent_id=w.agent_id, task_id=task["id"], sender=w.agent_id)
 
-    def _maybe_replan(self, reason: str):
+    def _maybe_replan(self, reason: str) -> bool:
         if self.stopping or not self.coordinator:
-            return
+            return False
         # one replan at a time: a pending replan will see the current situation anyway
         if self.repo.store.q1("SELECT 1 FROM tasks WHERE run_id=? AND kind='replan' AND status IN "
                               "('PENDING','READY','RUNNING')", (self.run_id,)):
-            return
+            return False
         run = self.repo.get_run(self.run_id)
         if (run["replans"] or 0) >= int(self.settings.get("max_replans", 2)):
             self.repo.add_event(self.run_id, Ev.WARNING,
                                 f"Replan limit reached; not replanning. Reason: {clip(reason, 400)}")
-            return
+            return False
         if self._budget_left() <= 0:
             self._budget_event("replan")
-            return
+            return False
         n = self.repo.bump_replans(self.run_id)
         table = "\n".join(f"- {t['id']} [{t['status']}] ({t['kind']}) {t['title']}"
                           + (f" - error: {clip(t.get('error'), 200)}" if t.get("error") else "")
@@ -1293,7 +1364,9 @@ class Engine:
             self.run_id, f"Replan #{n}",
             f"The plan needs adjustment.\n\nReason:\n{reason}\n\nCurrent tasks:\n{table}\n\n"
             "Propose replacement or additional tasks in `tasks` (they may depend on COMPLETED "
-            "task ids) and list obsolete blocked/failed task ids in `cancel`. If nothing useful "
+            "task ids) and list obsolete blocked/failed task ids in `cancel`. Give a "
+            "replacement task `replaces: [old id]` so the tasks waiting for the old one wait "
+            "for it instead; respect the fixed agent roles of the objective (`agent`). If nothing useful "
             "can be done, return an empty task list and explain why in the summary.",
             "replan", provider_pref=self.coordinator, origin="coordinator",
             idempotency_key=f"{self.run_id}:replan:{n}", priority=90, role="coordinator",
@@ -1301,6 +1374,7 @@ class Engine:
         self.repo.add_event(self.run_id, Ev.TASK_CREATED,
                             f"Coordinator replanning (#{n}): {clip(reason, 500)}", task_id=tid,
                             sender="coordinator", provider=self.coordinator)
+        return True
 
     # ================================================================== supervision
     def _check_timeouts(self):
@@ -1375,6 +1449,18 @@ class Engine:
         if self.repo.user_blocked_count(self.run_id) or \
                 self.repo.pending_approval_count(self.run_id):
             return          # waiting for the user's approval / manual action
+        blocked = self.repo.dep_blocked(self.run_id)
+        if blocked:
+            key = frozenset(t["id"] for t in blocked)
+            if key not in self._blocked_replan_tried:
+                self._blocked_replan_tried.add(key)
+                if self._maybe_replan(
+                        "Nothing can run, but these tasks are blocked because a task they "
+                        "depend on failed or was canceled:\n" + "\n".join(
+                            f"- {t['id']} {t['title']}" for t in blocked[:25]) +
+                        "\nReplace the dead dependency (use `replaces`) or cancel what is no "
+                        "longer needed. Do not duplicate tasks that already completed."):
+                    return
         counts = self.repo.task_counts(self.run_id)
         completed = [t for t in self.repo.tasks(self.run_id, ["COMPLETED"])
                      if t["kind"] not in ("plan", "replan")]

@@ -288,3 +288,34 @@ def test_workspace_acl_warning(tmp_path):
         pytest.skip("Windows ACL check")
     assert workspace_acl_warning(Path(__file__).resolve().parent.parent) is None
     assert "owner" in (workspace_acl_warning(tempfile.mkdtemp()) or "")
+
+
+def test_plan_agent_pin_and_replaces():
+    from triagent.core.protocol import validate_plan
+    agents = {"claude-1": "claude", "codex-1": "codex", "codex-2": "codex"}
+    tasks, warns = validate_plan([
+        {"key": "a", "title": "A", "kind": "implement", "provider": "claude", "agent": "codex-2"},
+        {"key": "b", "title": "B", "kind": "implement", "agent": "codex-9"},
+        {"key": "c", "title": "C", "kind": "review", "agent": "codex-1", "parallel": 2},
+        {"key": "d", "title": "D", "kind": "implement", "replaces": "task-abc"},
+    ], ["claude", "codex"], 10, agents=agents)
+    by = {t["key"]: t for t in tasks}
+    assert by["a"]["agent"] == "codex-2" and by["a"]["provider"] == "codex"
+    assert by["b"]["agent"] == "" and any("codex-9" in w for w in warns)
+    assert by["c"]["agent"] == ""
+    assert by["d"]["replaces"] == ["task-abc"]
+
+
+def test_prompt_respects_named_paths_and_synthesis_has_no_followups():
+    from triagent.core.protocol import compose_prompt
+    base = dict(agent={"id": "claude-1", "provider": "claude"}, roster={"claude": ["claude-1"]},
+                prompts={}, objective="Write out/REPORT.md", workspace="/ws", upstream=[],
+                messages=[], artifacts=[], settings={"max_rounds": 6})
+    p = compose_prompt(task={"id": "t1", "kind": "implement", "title": "x", "round": 0}, **base)
+    assert "use exactly that path" in p and "proposed_tasks" in p
+    assert 'report "done" and state the limitation' in p
+    s = compose_prompt(task={"id": "t2", "kind": "synthesize", "title": "Final", "round": 0},
+                       **base)
+    assert "proposed_tasks" not in s
+    r = compose_prompt(task={"id": "t3", "kind": "replan", "title": "Replan", "round": 0}, **base)
+    assert '"replaces"' in r and '"agent"' in r

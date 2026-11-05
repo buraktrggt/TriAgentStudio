@@ -253,6 +253,24 @@ class Repo:
         self.store.x("INSERT OR IGNORE INTO task_deps(task_id, depends_on) VALUES(?,?)",
                      (task_id, depends_on))
 
+    def replace_dep(self, old: str, new: str) -> list[str]:
+        """Tasks that depended on `old` depend on `new` instead (a replan replacement).
+        Returns the rewired task ids. The replacement itself is never made to wait on itself."""
+        with self.store.tx() as c:
+            ids = [r[0] for r in c.execute(
+                "SELECT task_id FROM task_deps WHERE depends_on=? AND task_id<>?", (old, new))]
+            for tid in ids:
+                c.execute("DELETE FROM task_deps WHERE task_id=? AND depends_on=?", (tid, old))
+                c.execute("INSERT OR IGNORE INTO task_deps(task_id, depends_on) VALUES(?,?)",
+                          (tid, new))
+        return ids
+
+    def dep_blocked(self, run_id: str) -> list[dict]:
+        """Tasks blocked only because a dependency failed or was canceled."""
+        return [dict(r) for r in self.store.q(
+            "SELECT * FROM tasks WHERE run_id=? AND status='BLOCKED' AND error=? ORDER BY "
+            "created_at", (run_id, DEP_FAILED))]
+
     def task_counts(self, run_id: str) -> dict[str, int]:
         return {r[0]: r[1] for r in self.store.q(
             "SELECT status, COUNT(*) FROM tasks WHERE run_id=? GROUP BY status", (run_id,))}

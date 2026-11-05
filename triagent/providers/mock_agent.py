@@ -38,6 +38,48 @@ def _received(prompt: str) -> list[str]:
     return re.findall(r"^\[msg #(\d+) from ([\w-]+)", prompt, re.M)
 
 
+def _title(prompt: str) -> str:
+    m = re.search(r"^## Your task\n\*\*(.+?)\*\*", prompt, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def _task_table(prompt: str) -> list[tuple[str, str, str, str]]:
+    """(id, status, kind, title) rows of a replan prompt's 'Current tasks' table."""
+    rows = []
+    for tid, st, kind, title in re.findall(
+            r"^- (task-[0-9a-f]+) \[([A-Z]+)\] \((\w+)\) (.+?)(?: - error: .*)?$", prompt, re.M):
+        rows.append((tid, st, kind, title.strip()))
+    return rows
+
+
+def _replan(prompt: str, report: dict) -> None:
+    """MOCK_REPLAN=replace: replace each failed implement task, linked with `replaces`.
+    MOCK_REPLAN=unlinked: the first replan replaces it WITHOUT a link (dependents stay
+    blocked); a later replan replaces each blocked task with a linked copy."""
+    mode = os.environ.get("MOCK_REPLAN", "")
+    rows = _task_table(prompt)
+    failed = [r for r in rows if r[1] == "FAILED" and r[2] == "implement"]
+    blocked = [r for r in rows if r[1] == "BLOCKED"]
+    report["tasks"], report["cancel"] = [], []
+    if failed:
+        for i, (tid, _st, kind, title) in enumerate(failed):
+            t = {"key": f"repl_{i}", "kind": kind, "provider": "codex",
+                 "description": "Redo the failed work."}
+            if mode == "replace":
+                t.update(title=f"{title} (second try)", replaces=[tid])
+            else:
+                t.update(title=f"Alternative approach {i}")
+            report["tasks"].append(t)
+            report["cancel"].append(tid)
+    elif blocked:
+        for i, (tid, _st, kind, title) in enumerate(blocked):
+            report["tasks"].append({"key": f"unblock_{i}", "kind": kind, "provider": "any",
+                                    "title": f"{title} (rescheduled)", "replaces": [tid],
+                                    "description": "Run again now that inputs exist."})
+            report["cancel"].append(tid)
+    report["summary"] = f"Replan ({mode}): {len(report['tasks'])} task(s)."
+
+
 def _scope(prompt: str) -> list[str]:
     m = re.search(r"^Files in scope: (.+)$", prompt, re.M)
     return [f.strip() for f in m.group(1).split(",") if f.strip()] if m else []
@@ -79,7 +121,9 @@ def build_report(prompt: str, can_write: bool | None = None) -> tuple[str, dict]
                 return p
         return "any"
 
-    if kind in ("plan", "replan"):
+    if kind == "replan" and os.environ.get("MOCK_REPLAN"):
+        _replan(prompt, report)
+    elif kind in ("plan", "replan"):
         d, i, v = pick("claude", "codex", "antigravity"), pick("codex", "claude", "antigravity"), \
             pick("antigravity", "claude", "codex")
         report["summary"] = "Plan: design -> two implementation tasks -> verification." + ack
@@ -97,6 +141,12 @@ def build_report(prompt: str, can_write: bool | None = None) -> tuple[str, dict]
              "provider": v, "description": "Independently verify behaviour.",
              "depends_on": ["impl_core", "impl_tests"]},
         ]
+        pin = os.environ.get("MOCK_PLAN_PIN")      # e.g. "impl_core=codex-2"
+        for spec in [x for x in (pin or "").split(",") if "=" in x]:
+            k, _, ag = spec.partition("=")
+            for t in report["tasks"]:
+                if t["key"] == k:
+                    t["agent"] = ag
         report["messages"].append({"to": "all", "type": "info",
                                    "body": "Plan created. Designer goes first; implementers wait "
                                            "for the design handoff."})
@@ -137,6 +187,10 @@ def build_report(prompt: str, can_write: bool | None = None) -> tuple[str, dict]
         report["summary"] = "Verification passed: all mock checks green." + ack
     else:
         report["summary"] = f"{kind} finished by {agent}." + ack
+        if kind == "synthesize" and os.environ.get("MOCK_SYNTH_PROPOSE"):
+            report["proposed_tasks"] = [{"key": "more", "title": "Do the remaining work",
+                                         "kind": "implement", "provider": "any",
+                                         "description": "Duplicate of planned work."}]
     text = (f"Working on {task} as {agent}.\n\n<triagent-report>\n"
             f"{json.dumps(report, indent=1)}\n</triagent-report>")
     return kind, {"text": text, "report": report}
@@ -273,6 +327,9 @@ def main(argv: list[str] | None = None) -> int:
         Path(rl).write_text("1")
         error = "429 Too Many Requests: rate limit reached for this account"
     fail = [k for k in os.environ.get("MOCK_FAIL_KINDS", "").split(",") if k]
+    fail_titles = [k for k in os.environ.get("MOCK_FAIL_TITLES", "").split(",") if k]
+    if not error and fail_titles and any(ft == _title(prompt) for ft in fail_titles):
+        error = f"mock failure in {_title(prompt)}"
     if not error and kind in fail:
         once_dir = os.environ.get("MOCK_FAIL_ONCE_DIR")
         marker = Path(once_dir) / f"{task}.failed" if once_dir else None

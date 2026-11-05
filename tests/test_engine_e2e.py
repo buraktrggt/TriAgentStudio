@@ -321,3 +321,77 @@ def test_stop_all_never_relaunches_killed_tasks(harness, monkeypatch):
     after = len(h.repo.store.q("SELECT 1 FROM worker_procs WHERE run_id=?", (run_id,)))
     assert after == before, "Stop All must not start new worker processes"
     assert all(t["status"] == "READY" for t in h.repo.tasks(run_id))
+
+
+# ---------------------------------------------------------------- recovery of blocked chains
+def _by_title(tasks, title):
+    return [t for t in tasks if t["title"] == title]
+
+
+def test_replan_replacement_unblocks_dependents(harness, monkeypatch):
+    """A replan that replaces a dead task must hand its dependents to the replacement
+    (seen in a real run: dependents stayed BLOCKED forever and the run ended early)."""
+    monkeypatch.setenv("MOCK_FAIL_TITLES", "Implement core module")
+    monkeypatch.setenv("MOCK_REPLAN", "replace")
+    monkeypatch.setenv("MOCK_REVIEW_APPROVE", "1")
+    h = harness(max_replans=2)
+    run_id = h.start()
+    _wait_done(h, run_id, 150)
+    tasks = h.repo.tasks(run_id)
+    old = _by_title(tasks, "Implement core module")
+    new = _by_title(tasks, "Implement core module (second try)")
+    verify = [t for t in tasks if t["kind"] == "verify"]
+    assert old and old[0]["status"] == "CANCELED"
+    assert new and new[0]["status"] == "COMPLETED"
+    assert verify and all(t["status"] == "COMPLETED" for t in verify), \
+        [(t["title"], t["status"]) for t in verify]
+    deps = h.repo.all_deps(run_id)
+    assert new[0]["id"] in deps[verify[0]["id"]] and old[0]["id"] not in deps[verify[0]["id"]]
+    assert h.run_status(run_id) == "completed"
+
+
+def test_blocked_tasks_trigger_replan_before_final_synthesis(harness, monkeypatch):
+    """If work is still blocked when nothing can run, the coordinator replans instead of
+    jumping to the final synthesis."""
+    monkeypatch.setenv("MOCK_FAIL_TITLES", "Implement core module")
+    monkeypatch.setenv("MOCK_REPLAN", "unlinked")
+    monkeypatch.setenv("MOCK_REVIEW_APPROVE", "1")
+    h = harness(max_replans=3)
+    run_id = h.start()
+    _wait_done(h, run_id, 150)
+    tasks = h.repo.tasks(run_id)
+    replans = sorted((t for t in tasks if t["kind"] == "replan"), key=lambda t: t["created_at"])
+    assert len(replans) >= 2
+    resched = [t for t in tasks if t["title"].endswith("(rescheduled)")]
+    assert resched and all(t["status"] == "COMPLETED" for t in resched)
+    synth = [t for t in tasks if t["kind"] == "synthesize"]
+    assert synth and synth[0]["created_at"] > replans[-1]["finished_at"] - 0.01
+    assert not h.repo.dep_blocked(run_id)
+
+
+def test_final_synthesis_never_creates_tasks(harness, monkeypatch):
+    monkeypatch.setenv("MOCK_SYNTH_PROPOSE", "1")
+    monkeypatch.setenv("MOCK_REVIEW_APPROVE", "1")
+    h = harness()
+    run_id = h.start()
+    _wait_done(h, run_id)
+    tasks = h.repo.tasks(run_id)
+    assert not _by_title(tasks, "Do the remaining work")
+    assert h.run_status(run_id) == "completed"
+    ev = [e for e in h.repo.events_after(run_id) if "were NOT created" in (e.get("body") or "")]
+    assert ev
+
+
+def test_plan_pin_assigns_fixed_agent_even_on_retry(harness, tmp_path, monkeypatch):
+    monkeypatch.setenv("MOCK_PLAN_PIN", "impl_core=codex-2,impl_tests=codex-1")
+    monkeypatch.setenv("MOCK_FAIL_TITLES", "Implement core module")
+    monkeypatch.setenv("MOCK_REVIEW_APPROVE", "1")
+    h = harness(max_replans=0, max_attempts=2)
+    run_id = h.start()
+    _wait_done(h, run_id, 150)
+    tasks = h.repo.tasks(run_id)
+    core = _by_title(tasks, "Implement core module")[0]
+    tests_ = _by_title(tasks, "Implement tests")[0]
+    assert core["agent_pref"] == "codex-2" and core["attempts"] == 2
+    assert core["assigned_agent"] == "codex-2"       # retried on the pinned agent
+    assert tests_["assigned_agent"] == "codex-1"

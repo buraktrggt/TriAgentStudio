@@ -154,11 +154,17 @@ def normalize_kind(kind: str) -> str:
 
 
 def validate_plan(tasks: list[dict], available: list[str], max_tasks: int,
-                  existing_keys: set[str] | None = None) -> tuple[list[dict], list[str]]:
+                  existing_keys: set[str] | None = None,
+                  agents: dict[str, str] | None = None) -> tuple[list[dict], list[str]]:
     """Validate and normalize a task graph proposed by the coordinator.
 
     Returns (normalized tasks in topological order, warnings). Raises PlanError if the
     graph is unusable (cycle, empty).
+
+    `agents` maps the run's usable agent ids to their provider. A task may pin itself to one
+    agent with `"agent": "codex-2"` (used when the objective fixes who does what); the pin
+    is dropped with a warning when the agent is not in the roster. `replaces` (replans) lists
+    ids of earlier tasks whose dependents should wait for this task instead.
     """
     warnings: list[str] = []
     existing_keys = existing_keys or set()
@@ -190,6 +196,24 @@ def validate_plan(tasks: list[dict], available: list[str], max_tasks: int,
             parallel = 1
         files = [str(f)[:300] for f in (t.get("files") or []) if f][:30] \
             if isinstance(t.get("files"), list) else []
+        agent = str(t.get("agent") or t.get("agent_id") or "").strip().lower()
+        if agent:
+            if agents is None or agent not in agents:
+                warnings.append(f"Task {key}: agent '{agent[:40]}' is not in the roster; "
+                                "pin ignored.")
+                agent = ""
+            elif parallel > 1:
+                warnings.append(f"Task {key}: a parallel task cannot be pinned to one agent; "
+                                "pin ignored.")
+                agent = ""
+            else:
+                if prov not in ("any", agents[agent]):
+                    warnings.append(f"Task {key}: provider {prov} contradicts agent {agent}; "
+                                    f"using {agents[agent]}.")
+                prov = agents[agent]
+        rep = t.get("replaces")
+        replaces = [str(x)[:64] for x in (rep if isinstance(rep, list) else [rep]) if x][:20] \
+            if rep else []
         norm.append({
             "key": key,
             "title": clip(str(t.get("title") or f"Task {i + 1}"), 200),
@@ -201,6 +225,8 @@ def validate_plan(tasks: list[dict], available: list[str], max_tasks: int,
             if isinstance(t.get("depends_on"), list) else [],
             "files": files,
             "parallel": parallel,
+            "agent": agent,
+            "replaces": replaces,
             "priority": int(t.get("priority") or 0) if str(t.get("priority") or "0").lstrip(
                 "-").isdigit() else 0,
         })
@@ -254,6 +280,7 @@ When you finish, end your final answer with exactly one report block:
 
 - Messages are delivered by TriAgent Studio to the recipients' next task. Send at most %MAXMSG%, only when useful.
 - Only list artifacts that you actually created or changed.
+- Status "blocked"/"failed" means the deliverable itself could not be produced. If you produced it but the environment prevented an extra check (for example a tool that is not installed), report "done" and state the limitation in the summary.
 - Do not include secrets, tokens or credentials anywhere in your output.
 """
 
@@ -262,6 +289,7 @@ PLAN_EXTRA = """,
     {"key": "short_unique_key", "title": "...", "description": "complete, self-contained instructions",
      "kind": "design|research|implement|fix|test|review|verify",
      "provider": "claude|codex|antigravity|any", "role": "short role name",
+     "agent": "optional agent id from the team roster (e.g. codex-2); set it whenever the objective assigns this work to a specific agent, and never give work to an agent whose role forbids it",
      "depends_on": ["other_key"], "files": ["paths this task may modify (write tasks)"],
      "parallel": 1}
   ]"""
@@ -375,8 +403,9 @@ def compose_prompt(*, agent: dict, task: dict, roster: dict[str, list[str]], pro
                  f"{workspace}\n\nYour working directory is this folder. Create every file "
                  "with a path relative to it (e.g. `DESIGN.md`, `src/app.py`) and report "
                  "artifacts with those relative paths. Files written by other agents are in "
-                 "the same folder; read them directly. Put generated deliverables (builds, "
-                 "packaged executables, reports, exports) under `output/`.")
+                 "the same folder; read them directly. When the objective or your task names a path "
+                 "for a deliverable, use exactly that path. Only generated deliverables with no "
+                 "named location (builds, packaged executables, exports) go under `output/`.")
     parts.append("## Constraints\n"
                  f"- Work only inside the workspace: {workspace}\n"
                  + access_line
@@ -393,9 +422,15 @@ def compose_prompt(*, agent: dict, task: dict, roster: dict[str, list[str]], pro
     extra = ""
     if task["kind"] in ("plan", "replan"):
         extra = PLAN_EXTRA + (',\n  "cancel": ["ids of blocked/failed tasks that the new tasks '
-                              'replace"]' if task["kind"] == "replan" else "")
+                              'replace"]\n(Replan: inside a new task add "replaces": ["old task '
+                              'id"] when it takes over the work of a failed, blocked or canceled '
+                              'task; tasks that were waiting for the old task then wait for the '
+                              'new one instead of staying blocked.)'
+                              if task["kind"] == "replan" else "")
     elif task["kind"] in ("review", "verify"):
         extra = REVIEW_EXTRA
+    elif task["kind"] == "synthesize":
+        extra = ""          # a synthesis reports; it never spawns new work
     elif settings.get("max_rounds", 0) > task.get("round", 0):
         extra = FOLLOWUP_EXTRA
     parts.append(REPORT_INSTRUCTIONS.replace("%EXTRA%", extra)
